@@ -2,60 +2,61 @@ package controllers
 
 import (
 	"net/http"
-	"go-mvc-crud/config"
-	"go-mvc-crud/models"
+	"strconv"
+
+	"go-mvc-crud/dto"
+	"go-mvc-crud/services"
 	"go-mvc-crud/utils"
 
 	"github.com/gin-gonic/gin"
 )
 
+type ProductHandler struct {
+	service services.ProductService
+}
+
+func NewProductHandler(service services.ProductService) *ProductHandler {
+	return &ProductHandler{service: service}
+}
+
 // Get all products (with optional filters)
-func GetProducts(c *gin.Context) {
-	var products []models.Product
-	query := config.DB
+func (h *ProductHandler) GetProducts(c *gin.Context) {
+	name := c.Query("name")
+	minPrice := c.Query("min_price")
+	maxPrice := c.Query("max_price")
 
-	// Filtering by name (partial match)
-	if name := c.Query("name"); name != "" {
-		query = query.Where("name LIKE ?", "%"+name+"%")
+	products, err := h.service.GetAllProducts(name, minPrice, maxPrice)
+	if err != nil {
+		utils.HandleError(c, utils.NewInternalServerError("Failed to fetch products"))
+		return
 	}
 
-	// Filtering by min price
-	if minPrice := c.Query("min_price"); minPrice != "" {
-		query = query.Where("price >= ?", minPrice)
-	}
-
-	// Filtering by max price
-	if maxPrice := c.Query("max_price"); maxPrice != "" {
-		query = query.Where("price <= ?", maxPrice)
-	}
-
-	query.Find(&products)
 	c.JSON(http.StatusOK, gin.H{"data": products})
 }
 
 // Create a product
-func CreateProduct(c *gin.Context) {
-	var input models.Product
+func (h *ProductHandler) CreateProduct(c *gin.Context) {
+	var input dto.CreateProductRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"errors": utils.FormatError(err)})
+		utils.HandleError(c, utils.NewBadRequestError("Validation failed", utils.FormatError(err)))
 		return
 	}
 
-	product := models.Product{
-		Name:        input.Name,
-		Description: input.Description,
-		Price:       input.Price,
+	product, err := h.service.CreateProduct(input)
+	if err != nil {
+		utils.HandleError(c, utils.NewInternalServerError("Failed to create product"))
+		return
 	}
-	config.DB.Create(&product)
 
-	c.JSON(http.StatusOK, gin.H{"data": product})
+	c.JSON(http.StatusCreated, gin.H{"data": product})
 }
 
 // Get a single product
-func GetProduct(c *gin.Context) {
-	var product models.Product
-	if err := config.DB.First(&product, c.Param("id")).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found!"})
+func (h *ProductHandler) GetProduct(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	product, err := h.service.GetProductByID(uint(id))
+	if err != nil {
+		utils.HandleError(c, utils.NewNotFoundError("Product not found"))
 		return
 	}
 
@@ -63,33 +64,31 @@ func GetProduct(c *gin.Context) {
 }
 
 // Update a product
-func UpdateProduct(c *gin.Context) {
-	var product models.Product
-	if err := config.DB.First(&product, c.Param("id")).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found!"})
-		return
-	}
+func (h *ProductHandler) UpdateProduct(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
 
-	var input models.Product
+	var input dto.UpdateProductRequest
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"errors": utils.FormatError(err)})
+		utils.HandleError(c, utils.NewBadRequestError("Validation failed", utils.FormatError(err)))
 		return
 	}
 
-	config.DB.Model(&product).Updates(input)
+	product, err := h.service.UpdateProduct(uint(id), input)
+	if err != nil {
+		utils.HandleError(c, utils.NewNotFoundError("Product not found or update failed"))
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{"data": product})
 }
 
 // Delete a product
-func DeleteProduct(c *gin.Context) {
-	var product models.Product
-	if err := config.DB.First(&product, c.Param("id")).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found!"})
+func (h *ProductHandler) DeleteProduct(c *gin.Context) {
+	id, _ := strconv.Atoi(c.Param("id"))
+	if err := h.service.DeleteProduct(uint(id)); err != nil {
+		utils.HandleError(c, utils.NewNotFoundError("Product not found"))
 		return
 	}
 
-	config.DB.Delete(&product)
-
-	c.JSON(http.StatusOK, gin.H{"message": "Product deleted successfully"})
+	c.JSON(http.StatusNoContent, nil)
 }

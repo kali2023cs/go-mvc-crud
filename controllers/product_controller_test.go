@@ -6,16 +6,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
+
 	"go-mvc-crud/config"
+	"go-mvc-crud/dto"
 	"go-mvc-crud/models"
+	"go-mvc-crud/repositories"
+	"go-mvc-crud/services"
+	"go-mvc-crud/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/gorm"
-	"go-mvc-crud/utils"
 )
+
+var testHandler *ProductHandler
 
 func setupTestDB() {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
@@ -25,6 +32,11 @@ func setupTestDB() {
 	db.AutoMigrate(&models.Product{})
 	config.DB = db
 	utils.InitCustomValidators()
+
+	// Initialize dependencies for testing
+	repo := repositories.NewProductRepository(db)
+	service := services.NewProductService(repo)
+	testHandler = NewProductHandler(service)
 }
 
 func TestMain(m *testing.M) {
@@ -40,7 +52,7 @@ func TestGetProducts(t *testing.T) {
 	config.DB.Create(&models.Product{Name: "Mouse", Price: 50})
 
 	r := gin.Default()
-	r.GET("/products", GetProducts)
+	r.GET("/products", testHandler.GetProducts)
 
 	t.Run("Get all products", func(t *testing.T) {
 		req, _ := http.NewRequest("GET", "/products", nil)
@@ -48,7 +60,7 @@ func TestGetProducts(t *testing.T) {
 		r.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		var response map[string][]models.Product
+		var response map[string][]dto.ProductResponse
 		json.Unmarshal(w.Body.Bytes(), &response)
 		assert.GreaterOrEqual(t, len(response["data"]), 2)
 	})
@@ -58,7 +70,7 @@ func TestGetProducts(t *testing.T) {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
-		var response map[string][]models.Product
+		var response map[string][]dto.ProductResponse
 		json.Unmarshal(w.Body.Bytes(), &response)
 		assert.Equal(t, 1, len(response["data"]))
 		assert.Equal(t, "Laptop", response["data"][0].Name)
@@ -67,7 +79,7 @@ func TestGetProducts(t *testing.T) {
 
 func TestCreateProduct(t *testing.T) {
 	r := gin.Default()
-	r.POST("/products", CreateProduct)
+	r.POST("/products", testHandler.CreateProduct)
 
 	t.Run("Success", func(t *testing.T) {
 		body := map[string]interface{}{
@@ -79,7 +91,7 @@ func TestCreateProduct(t *testing.T) {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, http.StatusCreated, w.Code)
 	})
 
 	t.Run("Validation Failure - Missing Name", func(t *testing.T) {
@@ -130,7 +142,7 @@ func TestUpdateProduct(t *testing.T) {
 	config.DB.Create(&product)
 
 	r := gin.Default()
-	r.PUT("/products/:id", UpdateProduct)
+	r.PUT("/products/:id", testHandler.UpdateProduct)
 
 	t.Run("Success", func(t *testing.T) {
 		body := map[string]interface{}{
@@ -138,7 +150,7 @@ func TestUpdateProduct(t *testing.T) {
 			"price": 10.0,
 		}
 		jsonBody, _ := json.Marshal(body)
-		req, _ := http.NewRequest("PUT", "/products/1", bytes.NewBuffer(jsonBody))
+		req, _ := http.NewRequest("PUT", "/products/"+strconv.Itoa(int(product.ID)), bytes.NewBuffer(jsonBody))
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
@@ -151,11 +163,11 @@ func TestDeleteProduct(t *testing.T) {
 	config.DB.Create(&product)
 
 	r := gin.Default()
-	r.DELETE("/products/:id", DeleteProduct)
+	r.DELETE("/products/:id", testHandler.DeleteProduct)
 
-	req, _ := http.NewRequest("DELETE", "/products/1", nil)
+	req, _ := http.NewRequest("DELETE", "/products/"+strconv.Itoa(int(product.ID)), nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, http.StatusNoContent, w.Code)
 }

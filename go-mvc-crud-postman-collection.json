@@ -2,6 +2,7 @@
 	"info": {
 		"_postman_id": "83406c59-bf53-402d-8aeb-d479dc428ae9",
 		"name": "Go MVC CRUD API",
+		"description": "Standardized REST API with Layered Architecture and Centralized Error Handling",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
